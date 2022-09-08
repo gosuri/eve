@@ -4,16 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"os/exec"
 	"path"
 	"strings"
 
-	"github.com/ovrclk/eve/logger"
-	"github.com/ovrclk/eve/util/fsutil"
 	"github.com/gosuri/uitable"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"github.com/ovrclk/eve/logger"
+	"github.com/ovrclk/eve/util/fsutil"
 )
 
 var (
@@ -28,6 +30,22 @@ type GlobalFlags struct {
 
 func init() {
 	globalFlags = &GlobalFlags{}
+	viper.SetConfigName(".eve")
+	viper.SetConfigType("yaml") // required if the config file does not have the extension in the name
+
+	// path to look for the config file in
+	viper.AddConfigPath(".")
+	viper.AddConfigPath(os.ExpandEnv("$HOME"))
+	viper.AddConfigPath("/etc/eve")
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			logger.Debug("init: No config file found")
+			// Config file not found; ignore error
+		} else {
+			// Config file was found but another error was produced
+			panic(fmt.Errorf("fatal error reading config file: %s", err))
+		}
+	}
 }
 
 // NewDeploy creates a new command that deploys the given application
@@ -52,6 +70,7 @@ func NewRootCMD(ctx context.Context, cancel context.CancelFunc) *cobra.Command {
 		NewPublish(ctx, cancel),
 		NewLogs(ctx, cancel),
 		NewSDL(ctx, cancel),
+		NewDeploy2Cmd(ctx, cancel),
 	)
 	return rootCmd
 }
@@ -189,7 +208,7 @@ func readvar(name string) (string, error) {
 		return "", errors.Errorf("file missing: %s", p)
 	} // if the file does not exist, return an error
 
-	b, err := ioutil.ReadFile(p)
+	b, err := os.ReadFile(p)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to read file %s", p)
 	}
@@ -201,7 +220,7 @@ func writevar(name, value string) error {
 	logger.Debug("writevar: ", name)
 	p := path.Join(globalFlags.Path, globalFlags.StateDirName, name) // path to the variable
 
-	if err := ioutil.WriteFile(p, []byte(value), 0644); err != nil {
+	if err := os.WriteFile(p, []byte(value), 0644); err != nil {
 		logger.Error("writevar error: ", err)
 		return errors.Wrapf(err, "failed to write file %s", p)
 	}
